@@ -17,16 +17,18 @@ export module TJS {
             disableExtraProperties: false,
             usePropertyOrder: false,
             generateRequired: false,
-            out: undefined
+            out: undefined,
+            userValidationKeywords: []
         };
     }
 
     class JsonSchemaGenerator {
-        private static validationKeywords = [
+        private validationKeywordsPreUser = [
             "ignore", "description", "type", "minimum", "exclusiveMinimum", "maximum",
             "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "format",
             "pattern", "minItems", "maxItems", "uniqueItems", "default",
             "additionalProperties", "enum"];
+        private validationKeywords: string[];
 
         private static annotedValidationKeywordPattern = /@[a-z.-]+\s*[^@]+/gi;
         //private static primitiveTypes = ["string", "number", "boolean", "any"];
@@ -43,6 +45,7 @@ export module TJS {
             this.allSymbols = allSymbols;
             this.inheritingTypes = inheritingTypes;
             this.tc = tc;
+            this.validationKeywords = [ ...this.validationKeywordsPreUser, ...args.userValidationKeywords ];
         }
 
         public get ReffedDefinitions(): { [key: string]: any } {
@@ -75,7 +78,7 @@ export module TJS {
                 keyword = keyword.replace("TJS-", "");
 
                 // case sensitive check inside the dictionary
-                if (JsonSchemaGenerator.validationKeywords.indexOf(keyword) >= 0 || JsonSchemaGenerator.validationKeywords.indexOf("TJS-" + keyword) >= 0) {
+                if (this.validationKeywords.indexOf(keyword) >= 0 || this.validationKeywords.indexOf("TJS-" + keyword) >= 0) {
                     let value: string = annotationTokens.length > 1 ? annotationTokens.slice(1).join(" ") : "";
                     value = value.replace(/^\s+|\s+$/gm, "");  // trim all whitepsace characters, including newlines
                     try {
@@ -125,17 +128,17 @@ export module TJS {
             joined = this.copyDescription(joined, definition);
             this.copyValidationKeywords(joined, definition);
         }
-        
+
         private getDefinitionForRootType(propertyType: ts.Type, tc: ts.TypeChecker, reffedType: ts.Symbol, definition: any) {
             const symbol = propertyType.getSymbol();
             const propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
-            
+
             switch (propertyTypeString.toLowerCase()) {
                 case "string":
                     definition.type = "string";
                     break;
                 case "number":
-                    const isInteger = (definition.type == "integer" || (reffedType && reffedType.getName() == "integer")); 
+                    const isInteger = (definition.type == "integer" || (reffedType && reffedType.getName() == "integer"));
                     definition.type = isInteger ? "integer" : "number";
                     break;
                 case "boolean":
@@ -166,16 +169,16 @@ export module TJS {
                         definition.type = "array";
                         definition.items = this.getTypeDefinition(arrayType, tc);
                     } else {
-                        
+
                         // TODO
                         console.error("Unsupported type: ", propertyType);
                         //definition = this.getTypeDefinition(propertyType, tc);
                     }
             }
-            
+
             return definition;
         }
-        
+
         private getReferencedTypeSymbol(prop: ts.Symbol, tc: ts.TypeChecker) : ts.Symbol {
             const decl = prop.getDeclarations();
             if (decl && decl.length) {
@@ -193,7 +196,7 @@ export module TJS {
             const propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
 
             const reffedType = this.getReferencedTypeSymbol(prop, tc);
-            
+
             let definition: any = this.getTypeDefinition(propertyType, tc, undefined, undefined, prop, reffedType);
             if (this.args.useTitle) {
                 definition.title = propertyName;
@@ -289,10 +292,10 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                 if(indexType.flags != ts.TypeFlags.Number && !isStringIndexed) {
                     throw "Not supported: IndexSignatureDeclaration with index symbol other than a number or a string";
                 }
-                
+
                 const typ = tc.getTypeAtLocation(indexSignature.type);
                 const def = this.getTypeDefinition(typ, tc, undefined, "anyOf");
-                
+
                 if(isStringIndexed) {
                     definition.type = "object";
                     definition.additionalProperties = def;
@@ -352,15 +355,15 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                 }
             }
         }
-        
+
         private getTypeDefinition(typ: ts.Type, tc: ts.TypeChecker, asRef = this.args.useRef, unionModifier: string = "oneOf", prop? : ts.Symbol, reffedType?: ts.Symbol): any {
             const definition : any = {}; // real definition
             let returnedDefinition = definition; // returned definition, may be a $ref
-            
+
             const symbol = typ.getSymbol();
-            
+
             const isRawType = (!symbol || symbol.name == "integer" || symbol.name == "Array" || symbol.name == "Date");
-            
+
             // special case: an union where all child are string literals -> make an enum instead
             let isStringEnum = false;
             if (typ.flags & ts.TypeFlags.Union) {
@@ -369,7 +372,7 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                     return (propType.getFlags() & ts.TypeFlags.StringLiteral) != 0;
                 }));
             }
-            
+
             // aliased types must be handled slightly different
             const asTypeAliasRef = asRef && reffedType && (this.args.useTypeAliasRef || isStringEnum);
             if (!asTypeAliasRef) {
@@ -378,24 +381,24 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                                    // unless we are handling a type alias
                 }
             }
-          
+
             let fullTypeName = "";
             if (asTypeAliasRef) {
                 fullTypeName = tc.getFullyQualifiedName(reffedType);
             } else if (asRef) {
                 fullTypeName = tc.typeToString(typ, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
             }
-            
+
             if (asRef) {
                 returnedDefinition = {
                     "$ref":  "#/definitions/" + fullTypeName
                 };
             }
-            
+
             // Parse comments
             this.parseCommentsIntoDefinition(reffedType, definition); // handle comments in the type alias declaration
             this.parseCommentsIntoDefinition(prop || symbol, returnedDefinition);
-            
+
             if (!asRef || !this.reffedDefinitions[fullTypeName]) {
                 if (asRef) { // must be here to prevent recursivity problems
                     this.reffedDefinitions[fullTypeName] = definition;
@@ -403,7 +406,7 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                         definition.title = fullTypeName;
                     }
                 }
-                
+
                 const node = symbol ? symbol.getDeclarations()[0] : null;
                 if (typ.flags & ts.TypeFlags.Union) {
                     const unionType = <ts.UnionType>typ;
@@ -425,7 +428,7 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                     this.getClassDefinition(typ, tc, definition);
                 }
             }
-            
+
             return returnedDefinition;
         }
 
@@ -444,14 +447,14 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
         }
     }
 
-    export function getProgramFromFiles(files: string[]): ts.Program {  
+    export function getProgramFromFiles(files: string[]): ts.Program {
         // use built-in default options
-        const options: ts.CompilerOptions = { 
+        const options: ts.CompilerOptions = {
             noEmit: true, emitDecoratorMetadata: true, experimentalDecorators: true, target: ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS
         };
-        return ts.createProgram(files, options); 
+        return ts.createProgram(files, options);
     }
-    
+
     export function generateSchema(program: ts.Program, fullTypeName: string, args = getDefaultArgs()) {
         const tc = program.getTypeChecker();
 
@@ -462,13 +465,13 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
             const allSymbols: { [name: string]: ts.Type } = {};
             const inheritingTypes: { [baseName: string]: string[] } = {};
 
-            program.getSourceFiles().forEach(sourceFile => {    
-                /*console.log(sourceFile.fileName);    
+            program.getSourceFiles().forEach(sourceFile => {
+                /*console.log(sourceFile.fileName);
                 if(sourceFile.fileName.indexOf("main.ts") > -1) {
                     debugger;
-                } */          
+                } */
                 function inspect(node: ts.Node, tc: ts.TypeChecker) {
-                    
+
                     if (node.kind == ts.SyntaxKind.ClassDeclaration
                         || node.kind == ts.SyntaxKind.InterfaceDeclaration
                         || node.kind == ts.SyntaxKind.EnumDeclaration
@@ -476,18 +479,18 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                         ) {
                         const nodeType = tc.getTypeAtLocation(node);
                         let fullName = tc.getFullyQualifiedName((<any>node).symbol)
-                        
+
                         // remove file name
-                        // TODO: we probably don't want this eventually, 
+                        // TODO: we probably don't want this eventually,
                         // as same types can occur in different files and will override eachother in allSymbols
                         // This means atm we can't generate all types in large programs.
                         fullName = fullName.replace(/".*"\./, "");
-                        
-                        
+
+
                         allSymbols[fullName] = nodeType;
-                        
+
                         const baseTypes = nodeType.getBaseTypes() || [];
-                        
+
                         baseTypes.forEach(baseType => {
                             var baseName = tc.typeToString(baseType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
                             if (!inheritingTypes[baseName]) {
@@ -504,7 +507,7 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
 
             const generator = new JsonSchemaGenerator(allSymbols, inheritingTypes, tc, args);
             let definition = generator.getSchemaForSymbol(fullTypeName);
-            
+
             return definition;
         } else {
           diagnostics.forEach((diagnostic) => {
@@ -523,7 +526,7 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
         // basically a copy of https://github.com/Microsoft/TypeScript/blob/3663d400270ccae8b69cbeeded8ffdc8fa12d7ad/src/compiler/tsc.ts -> parseConfigFile
         const result = ts.parseConfigFileTextToJson(configFileName, ts.sys.readFile(configFileName));
         const configObject = result.config;
-        
+
         const configParseResult = ts.parseJsonConfigFileContent(configObject, ts.sys, path.dirname(configFileName), {}, configFileName);
         const options = configParseResult.options;
         options.noEmit = true;
@@ -531,10 +534,10 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
         delete options.outDir;
         delete options.outFile;
         delete options.declaration;
-     
+
         const program = ts.createProgram(configParseResult.fileNames, options);
         return program;
-        
+
         //const conf = ts.convertCompilerOptionsFromJson(null, path.dirname(filePattern), "tsconfig.json");
     }
     export function exec(filePattern: string, fullTypeName: string, args = getDefaultArgs()) {
@@ -544,16 +547,16 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
         } else {
             program = TJS.getProgramFromFiles(glob.sync(filePattern));
         }
-        
+
         const definition = TJS.generateSchema(program, fullTypeName, args);
-        
+
         const json = JSON.stringify(definition, null, 4) + "\n";
         if(args.out) {
             require("fs").writeFile(args.out, json, function(err) {
                 if(err) {
                     console.error("Unable to write output file: " + err.message);
                 }
-            }); 
+            });
         } else {
             process.stdout.write(json);
         }
@@ -581,6 +584,8 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
                 .describe("propOrder", "Create property order definitions.")
             .boolean("required").default("required", defaultArgs.generateRequired)
                 .describe("required", "Create required array for non-optional properties.")
+            .alias("keywords", "k")
+                .describe("keywords", "Add to the array of accepted comment keywords, comma separated.")
             .alias("out", "o")
                 .describe("out", "The output file, defaults to using stdout")
             .argv;
@@ -594,7 +599,8 @@ const fullName = tc.typeToString(clazzType, undefined, ts.TypeFormatFlags.UseFul
             disableExtraProperties: args.noExtraProps,
             usePropertyOrder: args.propOrder,
             generateRequired: args.required,
-            out: args.out
+            out: args.out,
+            userValidationKeywords: args.keywords ? args.keywords.split(',') : []
         });
     }
 }

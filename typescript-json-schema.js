@@ -15,7 +15,8 @@ var TJS;
             disableExtraProperties: false,
             usePropertyOrder: false,
             generateRequired: false,
-            out: undefined
+            out: undefined,
+            userValidationKeywords: []
         };
     }
     TJS.getDefaultArgs = getDefaultArgs;
@@ -23,11 +24,17 @@ var TJS;
         function JsonSchemaGenerator(allSymbols, inheritingTypes, tc, args) {
             if (args === void 0) { args = getDefaultArgs(); }
             this.args = args;
+            this.validationKeywordsPreUser = [
+                "ignore", "description", "type", "minimum", "exclusiveMinimum", "maximum",
+                "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "format",
+                "pattern", "minItems", "maxItems", "uniqueItems", "default",
+                "additionalProperties", "enum"];
             this.sandbox = { sandboxvar: null };
             this.reffedDefinitions = {};
             this.allSymbols = allSymbols;
             this.inheritingTypes = inheritingTypes;
             this.tc = tc;
+            this.validationKeywords = this.validationKeywordsPreUser.concat(args.userValidationKeywords);
         }
         Object.defineProperty(JsonSchemaGenerator.prototype, "ReffedDefinitions", {
             get: function () {
@@ -49,7 +56,7 @@ var TJS;
                     keyword = path_1[1];
                 }
                 keyword = keyword.replace("TJS-", "");
-                if (JsonSchemaGenerator.validationKeywords.indexOf(keyword) >= 0 || JsonSchemaGenerator.validationKeywords.indexOf("TJS-" + keyword) >= 0) {
+                if (this.validationKeywords.indexOf(keyword) >= 0 || this.validationKeywords.indexOf("TJS-" + keyword) >= 0) {
                     var value = annotationTokens.length > 1 ? annotationTokens.slice(1).join(" ") : "";
                     value = value.replace(/^\s+|\s+$/gm, "");
                     try {
@@ -370,11 +377,6 @@ var TJS;
             def["$schema"] = "http://json-schema.org/draft-04/schema#";
             return def;
         };
-        JsonSchemaGenerator.validationKeywords = [
-            "ignore", "description", "type", "minimum", "exclusiveMinimum", "maximum",
-            "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "format",
-            "pattern", "minItems", "maxItems", "uniqueItems", "default",
-            "additionalProperties", "enum"];
         JsonSchemaGenerator.annotedValidationKeywordPattern = /@[a-z.-]+\s*[^@]+/gi;
         return JsonSchemaGenerator;
     }());
@@ -494,6 +496,8 @@ var TJS;
             .describe("propOrder", "Create property order definitions.")
             .boolean("required").default("required", defaultArgs.generateRequired)
             .describe("required", "Create required array for non-optional properties.")
+            .alias("keywords", "k")
+            .describe("keywords", "Add to the array of accepted comment keywords, comma separated.")
             .alias("out", "o")
             .describe("out", "The output file, defaults to using stdout")
             .argv;
@@ -506,7 +510,8 @@ var TJS;
             disableExtraProperties: args.noExtraProps,
             usePropertyOrder: args.propOrder,
             generateRequired: args.required,
-            out: args.out
+            out: args.out,
+            userValidationKeywords: args.keywords ? args.keywords.split(',') : []
         });
     }
     TJS.run = run;

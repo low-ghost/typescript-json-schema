@@ -11,7 +11,7 @@ export function assertSchema(group: string, name: string, type: string, settings
             settings = TJS.getDefaultArgs();
             settings.generateRequired = true;
         }
-        
+
         const actual = TJS.generateSchema(TJS.getProgramFromFiles([resolve(base + group + "/" + name)]), type, settings);
 
         const file = readFileSync(base + group + "/schema.json", "utf8")
@@ -28,11 +28,11 @@ describe("schema", function () {
 
     assertSchema("interface-single", "main.ts", "MyObject");
     assertSchema("interface-multi", "main.ts", "MyObject");
-    
+
     let settings = TJS.getDefaultArgs();
     settings.useRootRef = true;
     assertSchema("interface-recursion", "main.ts", "MyObject", settings); // this sample needs rootRef
-    
+
     assertSchema("module-interface-single", "main.ts", "MyObject");
 
     // not supported right now
@@ -41,10 +41,10 @@ describe("schema", function () {
     assertSchema("enums-string", "main.ts", "MyObject");
     assertSchema("string-literals", "main.ts", "MyObject");
     assertSchema("string-literals-inline", "main.ts", "MyObject");
-    
+
     assertSchema("array-types", "main.ts", "MyArray");
     assertSchema("map-types", "main.ts", "MyObject");
-    
+
     assertSchema("type-union", "main.ts", "MyType");
     assertSchema("type-aliases", "main.ts", "MyString");
     assertSchema("type-aliases-fixed-size-array", "main.ts", "MyFixedSizeArray");
@@ -54,4 +54,8 @@ describe("schema", function () {
     assertSchema("optionals", "main.ts", "MyObject");
 
     assertSchema("comments", "main.ts", "MyObject");
+
+    let newSettings = TJS.getDefaultArgs();
+    newSettings.userValidationKeywords = [ 'otherKey' ];
+    assertSchema("keyword-args", "main.ts", "MyObject", newSettings);
 });
