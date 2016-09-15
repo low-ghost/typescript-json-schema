@@ -2,6 +2,7 @@
 var ts = require("typescript");
 var glob = require("glob");
 var path = require("path");
+var assign = require('lodash.assign');
 var vm = require("vm");
 var TJS;
 (function (TJS) {
@@ -56,6 +57,7 @@ var TJS;
                         value = JSON.parse(value);
                     }
                     catch (e) { }
+                    console.log({ value: value });
                     if (context_1) {
                         if (!to[context_1]) {
                             to[context_1] = {};
@@ -93,48 +95,49 @@ var TJS;
             var _this = this;
             var symbol = propertyType.getSymbol();
             var propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
-            switch (propertyTypeString.toLowerCase()) {
-                case "string":
-                    definition.type = "string";
-                    break;
-                case "number":
-                    var isInteger = (definition.type == "integer" || (reffedType && reffedType.getName() == "integer"));
-                    definition.type = isInteger ? "integer" : "number";
-                    break;
-                case "boolean":
-                    definition.type = "boolean";
-                    break;
-                case "any":
-                    break;
-                case "date":
-                    definition.type = "string";
-                    definition.format = "date-time";
-                    break;
-                default:
-                    if (propertyType.flags & ts.TypeFlags.Tuple) {
-                        var tupleType = propertyType;
-                        var fixedTypes = tupleType.elementTypes.map(function (elType) { return _this.getTypeDefinition(elType, tc); });
-                        definition.type = "array";
-                        definition.items = fixedTypes;
-                        definition.minItems = fixedTypes.length;
-                        definition.additionalItems = {
-                            "anyOf": fixedTypes
-                        };
-                    }
-                    else if (propertyType.flags & ts.TypeFlags.StringLiteral) {
-                        definition.type = "string";
-                        definition.enum = [propertyType.text];
-                    }
-                    else if (symbol && symbol.getName() == "Array") {
-                        var arrayType = propertyType.typeArguments[0];
-                        definition.type = "array";
-                        definition.items = this.getTypeDefinition(arrayType, tc);
-                    }
-                    else {
-                        console.error("Unsupported type: ", propertyType);
-                    }
-            }
-            return definition;
+            var getNewDefinition = function () {
+                switch (propertyTypeString.toLowerCase()) {
+                    case "string":
+                        return { type: "string" };
+                    case "number":
+                        var isInteger = (definition.type == "integer" || (reffedType && reffedType.getName() == "integer"));
+                        return { type: isInteger ? "integer" : "number" };
+                    case "boolean":
+                        return { type: "boolean" };
+                    case "any":
+                        return;
+                    case "date":
+                        return { type: "string", format: "date-time" };
+                    default:
+                        if (propertyType.flags & ts.TypeFlags.Tuple) {
+                            var tupleType = propertyType;
+                            var fixedTypes = tupleType.elementTypes.map(function (elType) { return _this.getTypeDefinition(elType, tc); });
+                            return {
+                                type: "array",
+                                items: fixedTypes,
+                                minItems: fixedTypes.length,
+                                additionalItems: {
+                                    "anyOf": fixedTypes,
+                                }
+                            };
+                        }
+                        else if (propertyType.flags & ts.TypeFlags.StringLiteral) {
+                            return {
+                                type: "string",
+                                enum: [propertyType.text]
+                            };
+                        }
+                        else if (symbol && symbol.getName() == "Array") {
+                            var arrayType = propertyType.typeArguments[0];
+                            return { type: "array", items: _this.getTypeDefinition(arrayType, tc) };
+                        }
+                        else {
+                            console.error("Unsupported type: ", propertyType);
+                        }
+                }
+            };
+            console.log(getNewDefinition(), { definition: definition });
+            return assign(getNewDefinition(), definition);
         };
         JsonSchemaGenerator.prototype.getReferencedTypeSymbol = function (prop, tc) {
             var decl = prop.getDeclarations();
@@ -356,6 +359,7 @@ var TJS;
                     this.getClassDefinition(typ, tc, definition);
                 }
             }
+            console.log({ returnedDefinition: returnedDefinition });
             return returnedDefinition;
         };
         JsonSchemaGenerator.prototype.getSchemaForSymbol = function (symbolName, includeReffedDefinitions) {
@@ -374,7 +378,7 @@ var TJS;
             "ignore", "description", "type", "minimum", "exclusiveMinimum", "maximum",
             "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "format",
             "pattern", "minItems", "maxItems", "uniqueItems", "default",
-            "additionalProperties", "enum"];
+            "additionalProperties", "enum", "items"];
         JsonSchemaGenerator.annotedValidationKeywordPattern = /@[a-z.-]+\s*[^@]+/gi;
         return JsonSchemaGenerator;
     }());
