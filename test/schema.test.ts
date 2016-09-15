@@ -39,6 +39,9 @@ describe("schema", function () {
     //assertSchema("module-interface-deep", "main.ts", "Def");
 
     assertSchema("enums-string", "main.ts", "MyObject");
+    assertSchema("enums-number", "main.ts", "MyObject");
+    assertSchema("enums-number-initialized", "main.ts", "Enum");
+    assertSchema("enums-compiled-compute", "main.ts", "Enum");
     assertSchema("string-literals", "main.ts", "MyObject");
     assertSchema("string-literals-inline", "main.ts", "MyObject");
 
