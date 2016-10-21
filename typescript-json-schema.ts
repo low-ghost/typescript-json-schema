@@ -179,9 +179,9 @@ export module TJS {
                     "anyOf": fixedTypes
                 };
             } else {
-                const newReffedType = (propDeclaration && propDeclaration.type && propDeclaration.type.elementType)
+                const newReffedType = (propDeclaration && propDeclaration.type && propDeclaration.type.elementType && propDeclaration.type.elementType.kind === ts.SyntaxKind.TypeReference)
                     ? tc.getSymbolAtLocation(propDeclaration.type.elementType.typeName)
-                    : reffedType;
+                    : reffedType || null;
                 const propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
 
                 switch (propertyTypeString.toLowerCase()) {
