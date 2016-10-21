@@ -39,6 +39,8 @@
   },
   "scripts": {
     "test": "npm run build && mocha -t 5000 --require source-map-support/register test",
+    "test:watch": "mocha -t 5000 -w --require source-map-support/register test",
+    "test:debug": "mocha debug -t 5000 -w --require source-map-support/register test",
     "build": "tsc -p ."
   }
 }

@@ -5,15 +5,7 @@
  */
 export type PositiveInteger = number;
 
-/**
- * Generic type or string
- */
-export type OrString<T> = T | string;
-
-/**
- * Testing nested generics
- */
-export type Container<T> = { value: T };
+export type Identifier = PositiveInteger | string;
 
 export interface MyObject {
   /**
@@ -26,6 +18,8 @@ export interface MyObject {
    * String or integer
    * @default n/a
    */
-  identifier?: OrString<PositiveInteger>;
-  something_else?: Container<OrString<PositiveInteger>>;
+  identifier?: PositiveInteger | string;
+  identifier_typed?: Identifier;
+  tuple: [ PositiveInteger, string ];
+
 }
