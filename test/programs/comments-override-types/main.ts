@@ -12,14 +12,15 @@ export interface MyObject {
    * Property-level description
    * @additionalProperties false
    */
-  user_id: PositiveInteger;
-  user_ids: PositiveInteger[];
+  //user_id: PositiveInteger;
+  //user_ids: PositiveInteger[];
   /**
    * String or integer
    * @default n/a
    */
-  identifier?: PositiveInteger | string;
-  identifier_typed?: Identifier;
-  tuple: [ PositiveInteger, string ];
+  //identifier?: PositiveInteger | string;
+  //identifier_typed?: Identifier;
+  //tuple: [ PositiveInteger, string ];
+  tuple_with_nested: [ Identifier, [ PositiveInteger[] ] ];
 
 }
