@@ -156,14 +156,22 @@ export module TJS {
             return propertyType as any;
         }
 
-        private getDefinitionForRootType(propertyType: ts.Type, tc: ts.TypeChecker, reffedType: ts.Symbol, definition: any) {
+        private getDefinitionForRootType(propertyType: ts.Type, tc: ts.TypeChecker, reffedType: ts.Symbol, definition: any, propDeclaration: any/*ts.Declaration*/) {
             const symbol = propertyType.getSymbol();
 
             const tupleType = this.resolveTupleType(propertyType);
 
             if (tupleType) { // tuple
-                const elemTypes : ts.Type[] = tupleType.elementTypes || (propertyType as any).typeArguments;
-                const fixedTypes = elemTypes.map(elType => this.getTypeDefinition(elType, tc, undefined, undefined, undefined, reffedType));
+
+                const propElementTypes = propDeclaration && propDeclaration.type && propDeclaration.type.elementTypes;
+                const elemTypes : ts.Type[] = propElementTypes || tupleType.elementTypes || (propertyType as any).typeArguments;
+
+                const fixedTypes = elemTypes.map(elType => {
+                    const [ newElType, newReffedType ] = propElementTypes
+                        ? [ tc.getTypeAtLocation((<any>elType).typeName || elType), tc.getSymbolAtLocation((<any>elType).typeName || elType) ]
+                        : [ elType, reffedType ];
+                    return this.getTypeDefinition(newElType, tc, undefined, undefined, undefined, newReffedType);
+                });
                 definition.type = "array";
                 definition.items = fixedTypes;
                 definition.minItems = fixedTypes.length;
@@ -171,6 +179,9 @@ export module TJS {
                     "anyOf": fixedTypes
                 };
             } else {
+                const newReffedType = (propDeclaration && propDeclaration.type && propDeclaration.type.elementType)
+                    ? tc.getSymbolAtLocation(propDeclaration.type.elementType.typeName)
+                    : reffedType;
                 const propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
 
                 switch (propertyTypeString.toLowerCase()) {
@@ -349,7 +360,7 @@ export module TJS {
             };
 
             const propDeclaration = prop && prop.declarations && prop.getDeclarations()[0];
-            const fullPropRef = propDeclaration && propDeclaration.type && propDeclaration.type.types;
+            const fullPropRef = propDeclaration && (<any>propDeclaration).type && (<any>propDeclaration).type.types;
             const types = fullPropRef || unionType.types;
 
             for (let i = 0; i < types.length; ++i) {
@@ -454,7 +465,7 @@ export module TJS {
 
                 return definition;
             } else {
-                const propertyDefinitions = clazz.members.reduce((all, member) => {
+                const propertyDefinitions = clazz.members.reduce((all, member: any) => {
                     const propertyName = member.name.text;
                     const propDef = this.getDefinitionForProperty(member, tc, node, propertyName);
                     if (propDef != null) {
@@ -544,10 +555,10 @@ export module TJS {
         }
 
         private getTypeDefinition(typ: ts.Type, tc: ts.TypeChecker, asRef = this.args.useRef, unionModifier: string = "anyOf", prop? : ts.Symbol, reffedType?: ts.Symbol): any {
-            console.log('====================GET TYPE=============================');
+            //console.log('====================GET TYPE=============================');
             const _name = tc.typeToString(typ, undefined);
-            console.log(_name);
-            this.iter = (this.iter || 0) + 1;
+            //this.iter = (this.iter || 0) + 1;
+            //console.log(_name, this.iter);
             const definition : any = {}; // real definition
             let returnedDefinition = definition; // returned definition, may be a $ref
 
@@ -616,11 +627,8 @@ export module TJS {
                     }
                 } else if (isRawType) {
                     // If the prop's declaration is a type alias, we should pass in the alias as the reffed type
-                    const propDeclaration: any = prop && prop.getDeclarations && prop.getDeclarations()[0];
-                    const newReffedType = (propDeclaration && propDeclaration.type && propDeclaration.type.elementType && propDeclaration.type.elementType.typeName)
-                        ? tc.getSymbolAtLocation(propDeclaration.type.elementType.typeName)
-                        : reffedType;
-                    this.getDefinitionForRootType(typ, tc, newReffedType, definition);
+                    const propDeclaration = prop && prop.getDeclarations && prop.getDeclarations()[0];
+                    this.getDefinitionForRootType(typ, tc, reffedType, definition, propDeclaration);
                 } else if (node && (node.kind == ts.SyntaxKind.EnumDeclaration || node.kind == ts.SyntaxKind.EnumMember)) {
                     this.getEnumDefinition(typ, tc, definition);
                 } else {
