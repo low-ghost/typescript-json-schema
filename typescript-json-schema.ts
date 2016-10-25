@@ -3,8 +3,10 @@ import * as fs from "fs";
 import * as glob from "glob";
 import * as path from "path";
 
-
 const vm = require("vm");
+
+type NodeTypeObj = { nodeType: ts.Type, node: ts.Node };
+type AllSymbols = { [name: string]: NodeTypeObj };
 
 export module TJS {
     export function getDefaultArgs() {
@@ -32,7 +34,7 @@ export module TJS {
         private static annotedValidationKeywordPattern = /@[a-z.-]+\s*[^@]+/gi;
         //private static primitiveTypes = ["string", "number", "boolean", "any"];
 
-        private allSymbols: { [name: string]: ts.Type };
+        private allSymbols: AllSymbols;
         private inheritingTypes: { [baseName: string]: string[] };
         private tc: ts.TypeChecker;
 
@@ -40,7 +42,7 @@ export module TJS {
 
         private reffedDefinitions: { [key: string]: any } = {};
 
-        constructor(allSymbols: { [name: string]: ts.Type }, inheritingTypes: { [baseName: string]: string[] }, tc: ts.TypeChecker, private args = getDefaultArgs()) {
+        constructor(allSymbols: AllSymbols, inheritingTypes: { [baseName: string]: string[] }, tc: ts.TypeChecker, private args = getDefaultArgs()) {
             this.allSymbols = allSymbols;
             this.inheritingTypes = inheritingTypes;
             this.tc = tc;
@@ -167,10 +169,12 @@ export module TJS {
                 const elemTypes : ts.Type[] = propElementTypes || tupleType.elementTypes || (propertyType as any).typeArguments;
 
                 const fixedTypes = elemTypes.map(elType => {
+                    // Is Nested tuple
+                    const root = elType.typeName || elType;
                     const [ newElType, newReffedType ] = propElementTypes
-                        ? [ tc.getTypeAtLocation((<any>elType).typeName || elType), tc.getSymbolAtLocation((<any>elType).typeName || elType) ]
+                        ? [ tc.getTypeAtLocation(root), tc.getSymbolAtLocation(root) ]
                         : [ elType, reffedType ];
-                    return this.getTypeDefinition(newElType, tc, undefined, undefined, undefined, newReffedType);
+                    return this.getTypeDefinition({ nodeType: newElType, node: elType }, tc, undefined, undefined, undefined, newReffedType);
                 });
                 definition.type = "array";
                 definition.items = fixedTypes;
@@ -216,7 +220,7 @@ export module TJS {
                         } else if (symbol && symbol.getName() == "Array") {
                             const arrayType = (<ts.TypeReference>propertyType).typeArguments[0];
                             definition.type = "array";
-                            definition.items = this.getTypeDefinition(arrayType, tc, undefined, undefined, undefined, reffedType);
+                            definition.items = this.getTypeDefinition({ nodeType: arrayType }, tc, undefined, undefined, undefined, reffedType);
                         } else {
                             // Report that type could not be processed
                             let info : any = propertyType;
@@ -248,7 +252,7 @@ export module TJS {
 
             const reffedType = this.getReferencedTypeSymbol(prop, tc);
 
-            let definition: any = this.getTypeDefinition(propertyType, tc, undefined, undefined, prop, reffedType);
+            let definition: any = this.getTypeDefinition({ nodeType: propertyType }, tc, undefined, undefined, prop, reffedType);
             if (this.args.useTitle) {
                 definition.title = propertyName;
             }
@@ -374,7 +378,7 @@ export module TJS {
                     addEnumValue(value);
                 }
                 else {
-                    const def = this.getTypeDefinition(valueType, tc, undefined, undefined, undefined, reffedType);
+                    const def = this.getTypeDefinition({ nodeType: valueType }, tc, undefined, undefined, undefined, reffedType);
                     if (def.type === "undefined") {
                         if (prop)
                             (<any>prop).mayBeUndefined = true;
@@ -446,7 +450,7 @@ export module TJS {
                 }
 
                 const typ = tc.getTypeAtLocation(indexSignature.type);
-                const def = this.getTypeDefinition(typ, tc, undefined, "anyOf");
+                const def = this.getTypeDefinition({ nodeType: typ }, tc, undefined, "anyOf");
 
                 if(isStringIndexed) {
                     definition.type = "object";
@@ -554,11 +558,11 @@ export module TJS {
             return def;
         }
 
-        private getTypeDefinition(typ: ts.Type, tc: ts.TypeChecker, asRef = this.args.useRef, unionModifier: string = "anyOf", prop? : ts.Symbol, reffedType?: ts.Symbol): any {
-            //console.log('====================GET TYPE=============================');
+        private getTypeDefinition({ nodeType: typ, node: originalNode }: NodeTypeObj, tc: ts.TypeChecker, asRef = this.args.useRef, unionModifier: string = "anyOf", prop? : ts.Symbol, reffedType?: ts.Symbol): any {
+            console.log('====================GET TYPE=============================');
             const _name = tc.typeToString(typ, undefined);
-            //this.iter = (this.iter || 0) + 1;
-            //console.log(_name, this.iter);
+            this.iter = (this.iter || 0) + 1;
+            console.log(_name, this.iter);
             const definition : any = {}; // real definition
             let returnedDefinition = definition; // returned definition, may be a $ref
 
@@ -606,6 +610,7 @@ export module TJS {
                 this.parseCommentsIntoDefinition(prop, returnedDefinition, otherAnnotations);
             else
                 this.parseCommentsIntoDefinition(symbol, definition, otherAnnotations);
+            if (this.iter === 6) console.log('_____________');
 
             // Create the actual definition only if is an inline definition, or
             // if it will be a $ref and it is not yet created
@@ -623,12 +628,12 @@ export module TJS {
                     definition.allOf = [];
                     const types = (<ts.IntersectionType> typ).types;
                     for (let i = 0; i < types.length; ++i) {
-                        definition.allOf.push(this.getTypeDefinition(types[i], tc));
+                        definition.allOf.push(this.getTypeDefinition({ nodeType: types[i] }, tc));
                     }
                 } else if (isRawType) {
                     // If the prop's declaration is a type alias, we should pass in the alias as the reffed type
                     const propDeclaration = prop && prop.getDeclarations && prop.getDeclarations()[0];
-                    this.getDefinitionForRootType(typ, tc, reffedType, definition, propDeclaration);
+                    this.getDefinitionForRootType(typ, tc, reffedType, definition, propDeclaration || { type: originalNode });
                 } else if (node && (node.kind == ts.SyntaxKind.EnumDeclaration || node.kind == ts.SyntaxKind.EnumMember)) {
                     this.getEnumDefinition(typ, tc, definition);
                 } else {
@@ -685,8 +690,8 @@ export module TJS {
 
         if (diagnostics.length == 0) {
 
-            const allSymbols: { [name: string]: ts.Type } = {};
-            const userSymbols: { [name: string]: ts.Type } = {};
+            const allSymbols: AllSymbols = {};
+            const userSymbols: AllSymbols = {};
             const inheritingTypes: { [baseName: string]: string[] } = {};
 
             program.getSourceFiles().forEach((sourceFile, sourceFileIdx) => {
@@ -710,11 +715,11 @@ export module TJS {
                         // This means atm we can't generate all types in large programs.
                         fullName = fullName.replace(/".*"\./, "");
 
-                        allSymbols[fullName] = nodeType;
+                        allSymbols[fullName] = { nodeType, node };
 
                         //if (sourceFileIdx == 0)
                         if (!sourceFile.hasNoDefaultLib)
-                            userSymbols[fullName] = nodeType;
+                            userSymbols[fullName] = { nodeType, node };
 
                         const baseTypes = nodeType.getBaseTypes() || [];
 
