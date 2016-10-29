@@ -121,13 +121,28 @@ var TJS;
                 return null;
             return propertyType;
         };
-        JsonSchemaGenerator.prototype.getDefinitionForRootType = function (propertyType, tc, reffedType, definition) {
+        JsonSchemaGenerator.prototype.getDefinitionForRootType = function (propertyType, tc, reffedType, definition, originalNode) {
             var _this = this;
             var symbol = propertyType.getSymbol();
             var tupleType = this.resolveTupleType(propertyType);
             if (tupleType) {
-                var elemTypes = tupleType.elementTypes || propertyType.typeArguments;
-                var fixedTypes = elemTypes.map(function (elType) { return _this.getTypeDefinition(elType, tc); });
+                var fixedTypes = void 0;
+                var elemTypes = void 0;
+                var propElementTypes_1 = originalNode && originalNode.type && originalNode.type.elementTypes;
+                if (originalNode && originalNode.type && originalNode.type.kind === ts.SyntaxKind.TypeReference) {
+                    elemTypes = tc.getSymbolAtLocation(originalNode.type.typeName).declarations[0].type.elementTypes;
+                    propElementTypes_1 = true;
+                }
+                else {
+                    elemTypes = propElementTypes_1 || tupleType.elementTypes || propertyType.typeArguments;
+                }
+                fixedTypes = elemTypes.map(function (elType) {
+                    var root = elType.typeName || elType;
+                    var _a = propElementTypes_1
+                        ? [tc.getTypeAtLocation(root), tc.getSymbolAtLocation(root)]
+                        : [elType, reffedType], newElType = _a[0], newReffedType = _a[1];
+                    return _this.getTypeDefinition({ nodeType: newElType, node: elType }, tc, undefined, undefined, undefined, newReffedType);
+                });
                 definition.type = "array";
                 definition.items = fixedTypes;
                 definition.minItems = fixedTypes.length;
@@ -136,6 +151,9 @@ var TJS;
                 };
             }
             else {
+                var newReffedType = (originalNode && originalNode.type && originalNode.type.elementType && originalNode.type.elementType.kind === ts.SyntaxKind.TypeReference)
+                    ? tc.getSymbolAtLocation(originalNode.type.elementType.typeName)
+                    : reffedType || null;
                 var propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
                 switch (propertyTypeString.toLowerCase()) {
                     case "string":
@@ -169,7 +187,7 @@ var TJS;
                         else if (symbol && symbol.getName() == "Array") {
                             var arrayType = propertyType.typeArguments[0];
                             definition.type = "array";
-                            definition.items = this.getTypeDefinition(arrayType, tc);
+                            definition.items = this.getTypeDefinition({ nodeType: arrayType }, tc, undefined, undefined, undefined, reffedType);
                         }
                         else {
                             var info = propertyType;
@@ -193,12 +211,11 @@ var TJS;
             }
             return null;
         };
-        JsonSchemaGenerator.prototype.getDefinitionForProperty = function (prop, tc, node) {
-            var propertyName = prop.getName();
+        JsonSchemaGenerator.prototype.getDefinitionForProperty = function (member, tc, node, propertyName) {
+            var prop = member.symbol;
             var propertyType = tc.getTypeOfSymbolAtLocation(prop, node);
-            var propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
             var reffedType = this.getReferencedTypeSymbol(prop, tc);
-            var definition = this.getTypeDefinition(propertyType, tc, undefined, undefined, prop, reffedType);
+            var definition = this.getTypeDefinition({ nodeType: propertyType, node: member }, tc, undefined, undefined, prop, reffedType);
             if (this.args.useTitle) {
                 definition.title = propertyName;
             }
@@ -286,7 +303,8 @@ var TJS;
             }
             return definition;
         };
-        JsonSchemaGenerator.prototype.getUnionDefinition = function (unionType, prop, tc, unionModifier, definition) {
+        JsonSchemaGenerator.prototype.getUnionDefinition = function (_a, prop, tc, unionModifier, definition) {
+            var unionType = _a.unionType, originalNode = _a.originalNode;
             var enumValues = [];
             var simpleTypes = [];
             var schemas = [];
@@ -298,14 +316,20 @@ var TJS;
                 if (enumValues.indexOf(val) == -1)
                     enumValues.push(val);
             };
-            for (var i = 0; i < unionType.types.length; ++i) {
-                var valueType = unionType.types[i];
+            var fullRef = originalNode && originalNode.type && originalNode.type.types;
+            var types = fullRef || unionType.types;
+            for (var i = 0; i < types.length; ++i) {
+                var refType = types[i];
+                var valueType = fullRef ? tc.getTypeAtLocation(refType) : refType;
+                var reffedType = refType
+                    && refType.kind === ts.SyntaxKind.TypeReference
+                    && tc.getSymbolAtLocation(refType.typeName);
                 var value = this.extractLiteralValue(valueType);
-                if (value !== undefined) {
+                if (value !== undefined && !reffedType) {
                     addEnumValue(value);
                 }
                 else {
-                    var def = this.getTypeDefinition(unionType.types[i], tc);
+                    var def = this.getTypeDefinition({ nodeType: valueType }, tc, undefined, undefined, undefined, reffedType);
                     if (def.type === "undefined") {
                         if (prop)
                             prop.mayBeUndefined = true;
@@ -367,7 +391,7 @@ var TJS;
                     throw "Not supported: IndexSignatureDeclaration with index symbol other than a number or a string";
                 }
                 var typ = tc.getTypeAtLocation(indexSignature.type);
-                var def = this.getTypeDefinition(typ, tc, undefined, "anyOf");
+                var def = this.getTypeDefinition({ nodeType: typ }, tc, undefined, "anyOf");
                 if (isStringIndexed) {
                     definition.type = "object";
                     definition.additionalProperties = def;
@@ -386,9 +410,9 @@ var TJS;
                 return definition;
             }
             else {
-                var propertyDefinitions = props.reduce(function (all, prop) {
-                    var propertyName = prop.getName();
-                    var propDef = _this.getDefinitionForProperty(prop, tc, node);
+                var propertyDefinitions = clazz.members.reduce(function (all, member) {
+                    var propertyName = member.name.text;
+                    var propDef = _this.getDefinitionForProperty(member, tc, node, propertyName);
                     if (propDef != null) {
                         all[propertyName] = propDef;
                     }
@@ -460,9 +484,14 @@ var TJS;
             }
             return def;
         };
-        JsonSchemaGenerator.prototype.getTypeDefinition = function (typ, tc, asRef, unionModifier, prop, reffedType) {
+        JsonSchemaGenerator.prototype.getTypeDefinition = function (_a, tc, asRef, unionModifier, prop, reffedType) {
+            var typ = _a.nodeType, originalNode = _a.node;
             if (asRef === void 0) { asRef = this.args.useRef; }
             if (unionModifier === void 0) { unionModifier = "anyOf"; }
+            console.log('====================GET TYPE=============================');
+            var _name = tc.typeToString(typ, undefined);
+            this.iter = (this.iter || 0) + 1;
+            console.log(_name, this.iter);
             var definition = {};
             var returnedDefinition = definition;
             var symbol = typ.getSymbol();
@@ -474,18 +503,23 @@ var TJS;
                     return (propType.getFlags() & ts.TypeFlags.StringLiteral) != 0;
                 }));
             }
+            var fullTypeName = "";
             var asTypeAliasRef = asRef && reffedType && (this.args.useTypeAliasRef || isStringEnum);
             if (!asTypeAliasRef) {
+                var reffedDeclaration = reffedType && reffedType.getDeclarations()[0];
+                var isTypeAliasRef = reffedDeclaration && reffedDeclaration.kind === ts.SyntaxKind.TypeAliasDeclaration;
                 if (isRawType || (typ.getFlags() & ts.TypeFlags.Anonymous)) {
-                    asRef = false;
+                    if (isTypeAliasRef) {
+                        fullTypeName = reffedDeclaration.name.getText();
+                    }
+                    else {
+                        asRef = false;
+                    }
                 }
+                fullTypeName = fullTypeName !== "" ? fullTypeName : tc.typeToString(typ, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
             }
-            var fullTypeName = "";
-            if (asTypeAliasRef) {
+            else {
                 fullTypeName = tc.getFullyQualifiedName(reffedType);
-            }
-            else if (asRef) {
-                fullTypeName = tc.typeToString(typ, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
             }
             if (asRef) {
                 returnedDefinition = {
@@ -507,17 +541,17 @@ var TJS;
                 }
                 var node = symbol ? symbol.getDeclarations()[0] : null;
                 if (typ.flags & ts.TypeFlags.Union) {
-                    this.getUnionDefinition(typ, prop, tc, unionModifier, definition);
+                    this.getUnionDefinition({ unionType: typ, originalNode: originalNode }, reffedType || prop, tc, unionModifier, definition);
                 }
                 else if (typ.flags & ts.TypeFlags.Intersection) {
                     definition.allOf = [];
                     var types = typ.types;
                     for (var i = 0; i < types.length; ++i) {
-                        definition.allOf.push(this.getTypeDefinition(types[i], tc));
+                        definition.allOf.push(this.getTypeDefinition({ nodeType: types[i] }, tc));
                     }
                 }
                 else if (isRawType) {
-                    this.getDefinitionForRootType(typ, tc, reffedType, definition);
+                    this.getDefinitionForRootType(typ, tc, reffedType, definition, originalNode);
                 }
                 else if (node && (node.kind == ts.SyntaxKind.EnumDeclaration || node.kind == ts.SyntaxKind.EnumMember)) {
                     this.getEnumDefinition(typ, tc, definition);
@@ -587,9 +621,9 @@ var TJS;
                         var nodeType = tc.getTypeAtLocation(node);
                         var fullName_1 = tc.getFullyQualifiedName(node.symbol);
                         fullName_1 = fullName_1.replace(/".*"\./, "");
-                        allSymbols_1[fullName_1] = nodeType;
+                        allSymbols_1[fullName_1] = { nodeType: nodeType, node: node };
                         if (!sourceFile.hasNoDefaultLib)
-                            userSymbols_1[fullName_1] = nodeType;
+                            userSymbols_1[fullName_1] = { nodeType: nodeType, node: node };
                         var baseTypes = nodeType.getBaseTypes() || [];
                         baseTypes.forEach(function (baseType) {
                             var baseName = tc.typeToString(baseType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);

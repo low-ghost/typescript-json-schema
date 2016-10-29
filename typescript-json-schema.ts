@@ -158,17 +158,26 @@ export module TJS {
             return propertyType as any;
         }
 
-        private getDefinitionForRootType(propertyType: ts.Type, tc: ts.TypeChecker, reffedType: ts.Symbol, definition: any, propDeclaration: any/*ts.Declaration*/) {
+        private getDefinitionForRootType(propertyType: ts.Type, tc: ts.TypeChecker, reffedType: ts.Symbol, definition: any, originalNode: any/*ts.Declaration*/) {
             const symbol = propertyType.getSymbol();
 
             const tupleType = this.resolveTupleType(propertyType);
 
             if (tupleType) { // tuple
 
-                const propElementTypes = propDeclaration && propDeclaration.type && propDeclaration.type.elementTypes;
-                const elemTypes : ts.Type[] = propElementTypes || tupleType.elementTypes || (propertyType as any).typeArguments;
+                let fixedTypes: any[];
+                let elemTypes: ts.type[];
 
-                const fixedTypes = elemTypes.map(elType => {
+                let propElementTypes = originalNode && originalNode.type && originalNode.type.elementTypes;
+
+                if (originalNode && originalNode.type && originalNode.type.kind === ts.SyntaxKind.TypeReference) {
+                  elemTypes = tc.getSymbolAtLocation(originalNode.type.typeName).declarations[0].type.elementTypes;
+                  propElementTypes = true;
+                } else {
+                  elemTypes = propElementTypes || tupleType.elementTypes || (propertyType as any).typeArguments;
+                }
+
+                fixedTypes = elemTypes.map(elType => {
                     // Is Nested tuple
                     const root = elType.typeName || elType;
                     const [ newElType, newReffedType ] = propElementTypes
@@ -176,6 +185,7 @@ export module TJS {
                         : [ elType, reffedType ];
                     return this.getTypeDefinition({ nodeType: newElType, node: elType }, tc, undefined, undefined, undefined, newReffedType);
                 });
+
                 definition.type = "array";
                 definition.items = fixedTypes;
                 definition.minItems = fixedTypes.length;
@@ -183,8 +193,8 @@ export module TJS {
                     "anyOf": fixedTypes
                 };
             } else {
-                const newReffedType = (propDeclaration && propDeclaration.type && propDeclaration.type.elementType && propDeclaration.type.elementType.kind === ts.SyntaxKind.TypeReference)
-                    ? tc.getSymbolAtLocation(propDeclaration.type.elementType.typeName)
+                const newReffedType = (originalNode && originalNode.type && originalNode.type.elementType && originalNode.type.elementType.kind === ts.SyntaxKind.TypeReference)
+                    ? tc.getSymbolAtLocation(originalNode.type.elementType.typeName)
                     : reffedType || null;
                 const propertyTypeString = tc.typeToString(propertyType, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
 
@@ -252,7 +262,7 @@ export module TJS {
 
             const reffedType = this.getReferencedTypeSymbol(prop, tc);
 
-            let definition: any = this.getTypeDefinition({ nodeType: propertyType }, tc, undefined, undefined, prop, reffedType);
+            let definition: any = this.getTypeDefinition({ nodeType: propertyType, node: member }, tc, undefined, undefined, prop, reffedType);
             if (this.args.useTitle) {
                 definition.title = propertyName;
             }
@@ -348,7 +358,7 @@ export module TJS {
             return definition;
         }
 
-        private getUnionDefinition(unionType: ts.UnionType, prop: ts.Symbol, tc: ts.TypeChecker, unionModifier: string, definition: any): any {
+        private getUnionDefinition({ unionType, originalNode }: { unionType: ts.UnionType, originalNode: ts.Node }, prop: ts.Symbol, tc: ts.TypeChecker, unionModifier: string, definition: any): any {
             const enumValues = [];
             const simpleTypes = [];
             const schemas = [];
@@ -363,16 +373,15 @@ export module TJS {
                     enumValues.push(val);
             };
 
-            const propDeclaration = prop && prop.declarations && prop.getDeclarations()[0];
-            const fullPropRef = propDeclaration && (<any>propDeclaration).type && (<any>propDeclaration).type.types;
-            const types = fullPropRef || unionType.types;
+            const fullRef = originalNode && (<any>originalNode).type && (<any>originalNode).type.types;
+            const types = fullRef || unionType.types;
 
             for (let i = 0; i < types.length; ++i) {
-                const propType = types[i];
-                const valueType = fullPropRef ? tc.getTypeAtLocation(propType) : propType;
-                const reffedType = propType
-                    && propType.kind === ts.SyntaxKind.TypeReference
-                    && tc.getSymbolAtLocation(propType.typeName);
+                const refType = types[i];
+                const valueType = fullRef ? tc.getTypeAtLocation(refType) : refType;
+                const reffedType = refType
+                    && refType.kind === ts.SyntaxKind.TypeReference
+                    && tc.getSymbolAtLocation(refType.typeName);
                 const value = this.extractLiteralValue(valueType);
                 if (value !== undefined && !reffedType) {
                     addEnumValue(value);
@@ -610,7 +619,6 @@ export module TJS {
                 this.parseCommentsIntoDefinition(prop, returnedDefinition, otherAnnotations);
             else
                 this.parseCommentsIntoDefinition(symbol, definition, otherAnnotations);
-            if (this.iter === 6) console.log('_____________');
 
             // Create the actual definition only if is an inline definition, or
             // if it will be a $ref and it is not yet created
@@ -623,7 +631,7 @@ export module TJS {
                 }
                 const node = symbol ? symbol.getDeclarations()[0] : null;
                 if (typ.flags & ts.TypeFlags.Union) {
-                    this.getUnionDefinition(typ as ts.UnionType, reffedType || prop, tc, unionModifier, definition);
+                    this.getUnionDefinition({ unionType: typ as ts.UnionType, originalNode }, reffedType || prop, tc, unionModifier, definition);
                 } else if (typ.flags & ts.TypeFlags.Intersection) {
                     definition.allOf = [];
                     const types = (<ts.IntersectionType> typ).types;
@@ -632,8 +640,7 @@ export module TJS {
                     }
                 } else if (isRawType) {
                     // If the prop's declaration is a type alias, we should pass in the alias as the reffed type
-                    const propDeclaration = prop && prop.getDeclarations && prop.getDeclarations()[0];
-                    this.getDefinitionForRootType(typ, tc, reffedType, definition, propDeclaration || { type: originalNode });
+                    this.getDefinitionForRootType(typ, tc, reffedType, definition, originalNode);
                 } else if (node && (node.kind == ts.SyntaxKind.EnumDeclaration || node.kind == ts.SyntaxKind.EnumMember)) {
                     this.getEnumDefinition(typ, tc, definition);
                 } else {

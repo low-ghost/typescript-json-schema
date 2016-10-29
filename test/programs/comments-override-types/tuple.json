@@ -1,0 +1,70 @@
+{
+    "type": "object",
+    "properties": {
+        "tuple": {
+            "type": "array",
+            "items": [
+                {
+                    "$ref": "#/definitions/PositiveInteger"
+                },
+                {
+                    "$ref": "#/definitions/Identifier"
+                }
+            ],
+            "minItems": 2,
+            "additionalItems": {
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/PositiveInteger"
+                    },
+                    {
+                        "$ref": "#/definitions/Identifier"
+                    }
+                ]
+            }
+        },
+        "tuple_typed": {
+            "$ref": "#/definitions/Tuple"
+        }
+    },
+    "required": [
+        "tuple",
+        "tuple_typed"
+    ],
+    "definitions": {
+        "PositiveInteger": {
+            "description": "A positive integer",
+            "type": "integer",
+            "minimum": 1
+        },
+        "Identifier": {
+            "type": [
+                "string",
+                "number"
+            ]
+        },
+        "Tuple": {
+            "type": "array",
+            "items": [
+                {
+                    "$ref": "#/definitions/PositiveInteger"
+                },
+                {
+                    "$ref": "#/definitions/Identifier"
+                }
+            ],
+            "minItems": 2,
+            "additionalItems": {
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/PositiveInteger"
+                    },
+                    {
+                        "$ref": "#/definitions/Identifier"
+                    }
+                ]
+            }
+        }
+    },
+    "$schema": "http://json-schema.org/draft-04/schema#"
+}
